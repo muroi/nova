@@ -152,6 +152,8 @@ class ConductorManager(manager.Manager):
     def reset(self):
         objects.Service.clear_min_version_cache()
 
+    def fetch_host_name(self, context):
+        return self.host
 
 @contextlib.contextmanager
 def try_target_cell(context, cell):

@@ -1037,6 +1037,16 @@ Possible values:
 * Any string, but there is almost never any reason to ever change this value
   from its default of 'compute'.
 """),
+    cfg.BoolOpt('sticky_messaging',
+                default=False,
+                help="""
+Sets the flag True for sticky messaging from nova-compute to nova-conductor.
+
+The default sends a RPC message to nova-conductor using 'conductor' topic.
+If set to True, the compute usually sends a RPC message to one specific
+conductor service. Compute servce elects the sitcked conductor service locally,
+and changes the service if it's goes down.
+""")
 ]
 
 db_opts = [

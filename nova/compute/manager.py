@@ -1165,7 +1165,11 @@ class ComputeManager(manager.Manager):
         the service up by listening on RPC queues, make sure to update
         our available resources (and indirectly our available nodes).
         """
-        self.update_available_resource(nova.context.get_admin_context())
+        admin_context = nova.context.get_admin_context()
+        self.update_available_resource(admin_context)
+        if obj_base.NovaObject.indirection_api:
+            LOG.warn('sticky_target at pre_start_hook: %s' % obj_base.NovaObject.indirection_api.sticky_target)
+            obj_base.NovaObject.indirection_api.setup_rpcapi(admin_context)
 
     def _get_power_state(self, context, instance):
         """Retrieve the power state for the given instance."""

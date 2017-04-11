@@ -15,6 +15,7 @@
 
 """Client side of the conductor RPC API."""
 
+import functools
 import oslo_messaging as messaging
 from oslo_serialization import jsonutils
 from oslo_versionedobjects import base as ovo_base
@@ -25,6 +26,24 @@ from nova import profiler
 from nova import rpc
 
 CONF = nova.conf.CONF
+
+from oslo_log import log as logging
+LOG = logging.getLogger(__name__)
+
+
+def stickable(fn):
+    @functools.wraps(fn)
+    def wrapper(self, context, *args, **kwargs):
+        try:
+            ret = fn(self, context,  *args, **kwargs)
+        except messaging.MessagingTimeout:
+            # reset sticky_target then try RPC again
+            LOG.debug('fail to call rpc to %s' % self.sticky_target)
+            self.sticky_target = None
+            ret = fn(self, context, *args, **kwargs)
+            self.set_sticky_target(context)
+        return ret
+    return wrapper
 
 
 @profiler.trace_cls("rpc")
@@ -217,10 +236,20 @@ class ConductorAPI(object):
         self.client = rpc.get_client(target,
                                      version_cap=version_cap,
                                      serializer=serializer)
+        self.sticky_target = None
+
+    def setup_rpcapi(self, context):
+        self.set_sticky_target(context)
+
+    def set_sticky_target(self, context):
+        if CONF.sticky_messaging:
+            cctxt = self.client.prepare()
+            self.sticky_target = cctxt.call(context, 'fetch_host_name')
 
     # TODO(hanlind): This method can be removed once oslo.versionedobjects
     # has been converted to use version_manifests in remotable_classmethod
     # operations, which will use the new class action handler.
+    @stickable
     def object_class_action(self, context, objname, objmethod, objver,
                             args, kwargs):
         versions = ovo_base.obj_tree_get_versions(objname)
@@ -230,21 +259,27 @@ class ConductorAPI(object):
                                                  versions,
                                                  args, kwargs)
 
+    @stickable
     def object_class_action_versions(self, context, objname, objmethod,
                                      object_versions, args, kwargs):
-        cctxt = self.client.prepare()
+        cctxt = self.client.prepare(server=self.sticky_target)
+        LOG.debug('sticky_target: %s' % self.sticky_target)
         return cctxt.call(context, 'object_class_action_versions',
                           objname=objname, objmethod=objmethod,
                           object_versions=object_versions,
                           args=args, kwargs=kwargs)
 
+    @stickable
     def object_action(self, context, objinst, objmethod, args, kwargs):
-        cctxt = self.client.prepare()
+        cctxt = self.client.prepare(server=self.sticky_target)
+        LOG.debug('sticky_target: %s' % self.sticky_target)
         return cctxt.call(context, 'object_action', objinst=objinst,
                           objmethod=objmethod, args=args, kwargs=kwargs)
 
+    @stickable
     def object_backport_versions(self, context, objinst, object_versions):
-        cctxt = self.client.prepare()
+        cctxt = self.client.prepare(server=self.sticky_target)
+        LOG.debug('sticky_target: %s' % self.sticky_target)
         return cctxt.call(context, 'object_backport_versions', objinst=objinst,
                           object_versions=object_versions)
 
